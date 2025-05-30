@@ -16,7 +16,9 @@ serve(async (req) => {
   }
 
   try {
-    const { action, orderData } = await req.json();
+    // Clone the request before reading the body
+    const clonedReq = req.clone();
+    const { action, orderData } = await clonedReq.json();
 
     if (action === 'create-order') {
       // Validate mobile number
