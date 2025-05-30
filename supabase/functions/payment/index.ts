@@ -19,8 +19,23 @@ serve(async (req) => {
     const { action, orderData } = await req.json();
 
     if (action === 'create-order') {
+      // Validate mobile number
+      const mobileNumber = orderData.mobile?.replace(/\D/g, '') || '';
+      if (mobileNumber.length !== 10) {
+        return new Response(
+          JSON.stringify({
+            status: false,
+            message: 'Invalid mobile number. Please provide a 10-digit mobile number.',
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
       const payload = {
-        customer_mobile: orderData.mobile,
+        customer_mobile: mobileNumber,
         user_token: USER_TOKEN,
         amount: '50', // Fixed amount of 50 rupees
         order_id: orderData.orderId,
@@ -37,9 +52,31 @@ serve(async (req) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
           },
           body: new URLSearchParams(payload),
         });
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          console.error('Non-JSON response received:', {
+            status: response.status,
+            contentType,
+          });
+          return new Response(
+            JSON.stringify({
+              status: false,
+              message: 'Payment service returned an invalid response format',
+              error: 'Invalid response format'
+            }),
+            {
+              status: 502,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            }
+          );
+        }
+
       } catch (networkError) {
         console.error('Payment API network error:', networkError);
         return new Response(
@@ -55,29 +92,7 @@ serve(async (req) => {
         );
       }
 
-      const responseText = await response.text();
-      let data;
-      
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Payment API response parse error:', {
-          status: response.status,
-          body: responseText,
-          error: parseError
-        });
-        return new Response(
-          JSON.stringify({ 
-            status: false, 
-            message: 'Invalid response from payment service',
-            error: 'Response parsing failed' 
-          }),
-          {
-            status: 502,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          }
-        );
-      }
+      const data = await response.json();
 
       // Check for specific error conditions in the API response
       if (!response.ok || !data.status) {
@@ -121,9 +136,31 @@ serve(async (req) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
           },
           body: new URLSearchParams(payload),
         });
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          console.error('Non-JSON response received:', {
+            status: response.status,
+            contentType,
+          });
+          return new Response(
+            JSON.stringify({
+              status: false,
+              message: 'Payment service returned an invalid response format',
+              error: 'Invalid response format'
+            }),
+            {
+              status: 502,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            }
+          );
+        }
+
       } catch (networkError) {
         console.error('Payment status check network error:', networkError);
         return new Response(
@@ -139,29 +176,7 @@ serve(async (req) => {
         );
       }
 
-      const responseText = await response.text();
-      let data;
-      
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Payment status check response parse error:', {
-          status: response.status,
-          body: responseText,
-          error: parseError
-        });
-        return new Response(
-          JSON.stringify({ 
-            status: false, 
-            message: 'Invalid response from payment service',
-            error: 'Response parsing failed' 
-          }),
-          {
-            status: 502,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          }
-        );
-      }
+      const data = await response.json();
 
       // Check for specific error conditions in the API response
       if (!response.ok || !data.status) {

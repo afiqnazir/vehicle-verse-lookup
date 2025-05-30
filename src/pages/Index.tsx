@@ -73,6 +73,7 @@ interface VehicleDetails {
 
 const Index = () => {
   const [vehicleNumber, setVehicleNumber] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [vehicleData, setVehicleData] = useState<VehicleDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -87,11 +88,25 @@ const Index = () => {
     setVehicleNumber(formatted);
   };
 
+  const formatMobileNumber = (input: string) => {
+    const formatted = input.replace(/\D/g, '').slice(0, 10);
+    setMobileNumber(formatted);
+  };
+
   const generateOrderId = () => {
     return `VL${Date.now()}${Math.floor(Math.random() * 1000)}`;
   };
 
   const initiatePayment = async () => {
+    if (mobileNumber.length !== 10) {
+      toast({
+        title: "Invalid Mobile Number",
+        description: "Please enter a valid 10-digit mobile number",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     setError('');
     
@@ -101,7 +116,7 @@ const Index = () => {
         body: {
           action: 'create-order',
           orderData: {
-            mobile: '0000000000', // You might want to add a mobile input field
+            mobile: mobileNumber,
             orderId: newOrderId,
             redirectUrl: window.location.href,
             vehicleNumber
@@ -110,7 +125,7 @@ const Index = () => {
       });
 
       if (paymentError) throw new Error(paymentError.message);
-      if (!paymentData.status) throw new Error(paymentData.message);
+      if (!paymentData.status) throw new Error(paymentData.message || 'Payment initiation failed');
 
       setOrderId(newOrderId);
       setPaymentUrl(paymentData.result.payment_url);
@@ -121,11 +136,11 @@ const Index = () => {
       
       // Start checking payment status
       checkPaymentStatus(newOrderId);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Payment initiation error:', err);
       toast({
         title: "Payment Error",
-        description: "Failed to initiate payment. Please try again.",
+        description: err.message || "Failed to initiate payment. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -207,7 +222,7 @@ const Index = () => {
       } else {
         throw new Error(data.error || 'Vehicle not found in database');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Vehicle lookup error:', err);
       setError('Unable to fetch vehicle details. Please try again or check if the vehicle number is correct.');
       toast({
@@ -257,8 +272,8 @@ const Index = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 max-w-md mx-auto">
-              <div className="flex-1">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4 max-w-md mx-auto">
+              <div>
                 <Input
                   type="text"
                   placeholder="e.g., MH01AB1234"
@@ -268,10 +283,21 @@ const Index = () => {
                   disabled={loading}
                 />
               </div>
+              <div>
+                <Input
+                  type="tel"
+                  placeholder="Mobile Number"
+                  value={mobileNumber}
+                  onChange={(e) => formatMobileNumber(e.target.value)}
+                  className="bg-white/10 border-blue-500/30 text-white placeholder:text-blue-200 text-lg h-12"
+                  disabled={loading}
+                  maxLength={10}
+                />
+              </div>
               <Button 
                 type="submit"
-                disabled={loading || !vehicleNumber.trim()}
-                className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 h-12 px-8"
+                disabled={loading || !vehicleNumber.trim() || mobileNumber.length !== 10}
+                className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 h-12"
               >
                 {loading ? (
                   <>
@@ -528,7 +554,7 @@ const Index = () => {
                 )}
                 <div className="flex flex-wrap gap-2">
                   {vehicleData.is_commercial && (
-                    <Badge variant="outline\" className="border-orange-500 text-orange-200">Commercial</Badge>
+                    <Badge variant="outline" className="border-orange-500 text-orange-200">Commercial</Badge>
                   )}
                   {vehicleData.is_two_wheeler && (
                     <Badge variant="outline" className="border-blue-500 text-blue-200">Two Wheeler</Badge>
