@@ -92,11 +92,40 @@ const Index = () => {
     setVehicleData(null);
 
     try {
-      // First API URL
+      // First API URL with CORS proxy for development
       console.log('Trying first API...');
-      let response = await fetch(`https://apex.renewbuyinsurance.com/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`);
+      let response;
       
-      if (response.ok) {
+      try {
+        // Try direct API call first
+        response = await fetch(`https://apex.renewbuyinsurance.com/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          mode: 'cors',
+        });
+      } catch (corsError) {
+        console.log('Direct API failed due to CORS, trying with proxy...');
+        // Try with CORS proxy as fallback
+        response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://apex.renewbuyinsurance.com/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`)}`);
+        
+        if (response.ok) {
+          const proxyData = await response.json();
+          const actualData = JSON.parse(proxyData.contents);
+          console.log('First API response via proxy:', actualData);
+          setVehicleData(actualData);
+          toast({
+            title: "Vehicle Found!",
+            description: "Vehicle details retrieved successfully",
+          });
+          setLoading(false);
+          return;
+        }
+      }
+      
+      if (response && response.ok) {
         const data = await response.json();
         console.log('First API response:', data);
         setVehicleData(data);
@@ -108,11 +137,40 @@ const Index = () => {
         return;
       }
 
-      // Second API URL (fallback)
+      // Second API URL (fallback) with CORS proxy
       console.log('First API failed, trying second API...');
-      response = await fetch(`https://apex.renewbuyinsurance.com/cv/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`);
+      try {
+        response = await fetch(`https://apex.renewbuyinsurance.com/cv/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          mode: 'cors',
+        });
+      } catch (corsError) {
+        console.log('Second direct API failed due to CORS, trying with proxy...');
+        response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://apex.renewbuyinsurance.com/cv/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`)}`);
+        
+        if (response.ok) {
+          const proxyData = await response.json();
+          const actualData = JSON.parse(proxyData.contents);
+          console.log('Second API response via proxy:', actualData);
+          if (actualData.status && actualData.vaahan_details) {
+            setVehicleData(actualData.vaahan_details);
+            toast({
+              title: "Vehicle Found!",
+              description: "Vehicle details retrieved successfully",
+            });
+          } else {
+            throw new Error('Vehicle not found in database');
+          }
+          setLoading(false);
+          return;
+        }
+      }
       
-      if (response.ok) {
+      if (response && response.ok) {
         const data = await response.json();
         console.log('Second API response:', data);
         if (data.status && data.vaahan_details) {
@@ -129,10 +187,10 @@ const Index = () => {
       }
     } catch (err) {
       console.error('API Error:', err);
-      setError('Vehicle not found. Please check the vehicle number and try again.');
+      setError('Unable to fetch vehicle details. This might be due to network restrictions or the vehicle number not being found in the database.');
       toast({
-        title: "Vehicle Not Found",
-        description: "Please verify the vehicle number and try again",
+        title: "Service Temporarily Unavailable",
+        description: "Please try again later or contact support if the issue persists",
         variant: "destructive",
       });
     } finally {
@@ -209,7 +267,13 @@ const Index = () => {
         {error && (
           <Card className="mb-8 bg-red-900/40 backdrop-blur-sm border-red-500/30">
             <CardContent className="pt-6">
-              <p className="text-red-200 text-center">{error}</p>
+              <div className="text-center">
+                <p className="text-red-200 mb-2">{error}</p>
+                <p className="text-red-300 text-sm">
+                  Note: Due to browser security restrictions, direct API access may be limited. 
+                  For production use, these APIs should be called from a backend server.
+                </p>
+              </div>
             </CardContent>
           </Card>
         )}
