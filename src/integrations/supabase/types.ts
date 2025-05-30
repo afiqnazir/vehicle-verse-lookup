@@ -9,54 +9,7 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      telegram_user_mapping: {
-        Row: {
-          created_at: string | null
-          telegram_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          telegram_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string | null
-          telegram_id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      users: {
-        Row: {
-          created_at: string | null
-          id: number
-          is_premium: boolean | null
-          last_active: string | null
-          remaining_searches: number | null
-          total_searches: number | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: number
-          is_premium?: boolean | null
-          last_active?: string | null
-          remaining_searches?: number | null
-          total_searches?: number | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: number
-          is_premium?: boolean | null
-          last_active?: string | null
-          remaining_searches?: number | null
-          total_searches?: number | null
-          user_id?: string
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Views: {
       [_ in never]: never
