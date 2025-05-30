@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Car, Shield, Calendar, User, MapPin, Wrench, FileText } from 'lucide-react';
+import { Search, Car, Shield, Calendar, User, MapPin, Wrench, FileText, IndianRupee } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface VehicleDetails {
   customer_details?: {
@@ -69,42 +76,129 @@ const Index = () => {
   const [vehicleData, setVehicleData] = useState<VehicleDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [paymentUrl, setPaymentUrl] = useState('');
+  const [orderId, setOrderId] = useState('');
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentVerifying, setPaymentVerifying] = useState(false);
   const { toast } = useToast();
 
   const formatVehicleNumber = (input: string) => {
-    // Remove spaces and convert to uppercase
     const formatted = input.replace(/\s/g, '').toUpperCase();
     setVehicleNumber(formatted);
   };
 
-  const fetchVehicleDetails = async () => {
-    if (!vehicleNumber.trim()) {
+  const generateOrderId = () => {
+    return `VL${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  };
+
+  const initiatePayment = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const newOrderId = generateOrderId();
+      const { data: paymentData, error: paymentError } = await supabase.functions.invoke('payment', {
+        body: {
+          action: 'create-order',
+          orderData: {
+            mobile: '0000000000', // You might want to add a mobile input field
+            orderId: newOrderId,
+            redirectUrl: window.location.href,
+            vehicleNumber
+          }
+        }
+      });
+
+      if (paymentError) throw new Error(paymentError.message);
+      if (!paymentData.status) throw new Error(paymentData.message);
+
+      setOrderId(newOrderId);
+      setPaymentUrl(paymentData.result.payment_url);
+      setShowPaymentDialog(true);
+      
+      // Open payment URL in new window
+      window.open(paymentData.result.payment_url, '_blank');
+      
+      // Start checking payment status
+      checkPaymentStatus(newOrderId);
+    } catch (err) {
+      console.error('Payment initiation error:', err);
       toast({
-        title: "Invalid Input",
-        description: "Please enter a valid vehicle number",
+        title: "Payment Error",
+        description: "Failed to initiate payment. Please try again.",
         variant: "destructive",
       });
-      return;
+    } finally {
+      setLoading(false);
     }
+  };
 
+  const checkPaymentStatus = async (orderIdToCheck: string) => {
+    setPaymentVerifying(true);
+    
+    const checkStatus = async () => {
+      try {
+        const { data: statusData, error: statusError } = await supabase.functions.invoke('payment', {
+          body: {
+            action: 'check-status',
+            orderData: {
+              orderId: orderIdToCheck
+            }
+          }
+        });
+
+        if (statusError) throw new Error(statusError.message);
+
+        if (statusData.status && statusData.result.txnStatus === 'SUCCESS') {
+          setShowPaymentDialog(false);
+          setPaymentVerifying(false);
+          fetchVehicleDetails();
+          return true;
+        }
+
+        return false;
+      } catch (err) {
+        console.error('Payment status check error:', err);
+        return false;
+      }
+    };
+
+    // Check every 5 seconds for 2 minutes
+    let attempts = 0;
+    const maxAttempts = 24;
+    
+    const intervalId = setInterval(async () => {
+      attempts++;
+      const success = await checkStatus();
+      
+      if (success || attempts >= maxAttempts) {
+        clearInterval(intervalId);
+        setPaymentVerifying(false);
+        if (!success && attempts >= maxAttempts) {
+          toast({
+            title: "Payment Timeout",
+            description: "Please try initiating the payment again.",
+            variant: "destructive",
+          });
+          setShowPaymentDialog(false);
+        }
+      }
+    }, 5000);
+  };
+
+  const fetchVehicleDetails = async () => {
     setLoading(true);
     setError('');
     setVehicleData(null);
 
     try {
-      console.log('Calling Supabase Edge Function for vehicle lookup...');
-      
       const { data, error: functionError } = await supabase.functions.invoke('vehicle-lookup', {
         body: { vehicleNumber }
       });
 
-      if (functionError) {
-        console.error('Supabase function error:', functionError);
-        throw new Error(functionError.message || 'Failed to fetch vehicle details');
-      }
+      if (functionError) throw new Error(functionError.message);
 
       if (data.success && data.data) {
-        console.log('Vehicle data received:', data.data);
         setVehicleData(data.data);
         toast({
           title: "Vehicle Found!",
@@ -128,12 +222,11 @@ const Index = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    fetchVehicleDetails();
+    initiatePayment();
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      {/* Header */}
       <div className="bg-black/20 backdrop-blur-sm border-b border-blue-500/20">
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center space-x-3">
@@ -149,7 +242,6 @@ const Index = () => {
       </div>
 
       <div className="container mx-auto px-4 py-8">
-        {/* Search Section */}
         <Card className="mb-8 bg-black/40 backdrop-blur-sm border-blue-500/30">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl text-white flex items-center justify-center space-x-2">
@@ -157,6 +249,12 @@ const Index = () => {
               <span>Vehicle Number Lookup</span>
             </CardTitle>
             <p className="text-blue-200">Enter your vehicle registration number to get complete RTO information</p>
+            <div className="mt-2">
+              <Badge variant="secondary" className="bg-green-500/20 text-green-200">
+                <IndianRupee className="h-4 w-4 mr-1" />
+                50 per search
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 max-w-md mx-auto">
@@ -178,12 +276,12 @@ const Index = () => {
                 {loading ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Searching...
+                    Processing...
                   </>
                 ) : (
                   <>
-                    <Search className="h-4 w-4 mr-2" />
-                    Search
+                    <IndianRupee className="h-4 w-4 mr-2" />
+                    Pay & Search
                   </>
                 )}
               </Button>
@@ -191,7 +289,34 @@ const Index = () => {
           </CardContent>
         </Card>
 
-        {/* Error Message */}
+        <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Complete Payment</DialogTitle>
+              <DialogDescription>
+                {paymentVerifying ? (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <p>Verifying payment status...</p>
+                    <p className="text-sm text-muted-foreground mt-2">Please complete the payment in the opened window</p>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p>Please complete the payment of ₹50 in the opened window.</p>
+                    <p className="text-sm text-muted-foreground mt-2">If the payment window is closed, click below to reopen</p>
+                    <Button
+                      className="mt-4"
+                      onClick={() => window.open(paymentUrl, '_blank')}
+                    >
+                      Reopen Payment Window
+                    </Button>
+                  </div>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+          </DialogContent>
+        </Dialog>
+
         {error && (
           <Card className="mb-8 bg-red-900/40 backdrop-blur-sm border-red-500/30">
             <CardContent className="pt-6">
@@ -202,10 +327,8 @@ const Index = () => {
           </Card>
         )}
 
-        {/* Vehicle Details */}
         {vehicleData && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Owner Information */}
             <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
               <CardHeader>
                 <CardTitle className="text-white flex items-center space-x-2">
@@ -232,7 +355,6 @@ const Index = () => {
               </CardContent>
             </Card>
 
-            {/* Vehicle Information */}
             <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
               <CardHeader>
                 <CardTitle className="text-white flex items-center space-x-2">
@@ -286,7 +408,6 @@ const Index = () => {
               </CardContent>
             </Card>
 
-            {/* Detailed Vehicle Info (if available from meta_data) */}
             {vehicleData.meta_data?.signzy_response?.result && (
               <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 lg:col-span-2">
                 <CardHeader>
@@ -348,7 +469,6 @@ const Index = () => {
               </Card>
             )}
 
-            {/* Insurance Information */}
             <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
               <CardHeader>
                 <CardTitle className="text-white flex items-center space-x-2">
@@ -380,7 +500,6 @@ const Index = () => {
               </CardContent>
             </Card>
 
-            {/* Additional Information */}
             <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
               <CardHeader>
                 <CardTitle className="text-white flex items-center space-x-2">
@@ -409,7 +528,7 @@ const Index = () => {
                 )}
                 <div className="flex flex-wrap gap-2">
                   {vehicleData.is_commercial && (
-                    <Badge variant="outline" className="border-orange-500 text-orange-200">Commercial</Badge>
+                    <Badge variant="outline\" className="border-orange-500 text-orange-200">Commercial</Badge>
                   )}
                   {vehicleData.is_two_wheeler && (
                     <Badge variant="outline" className="border-blue-500 text-blue-200">Two Wheeler</Badge>
@@ -423,7 +542,6 @@ const Index = () => {
           </div>
         )}
 
-        {/* Features Section */}
         {!vehicleData && !loading && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
             <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
@@ -463,3 +581,5 @@ const Index = () => {
 };
 
 export default Index;
+
+export default Index
