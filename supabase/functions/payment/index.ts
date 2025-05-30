@@ -36,6 +36,16 @@ serve(async (req) => {
         body: new URLSearchParams(payload),
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Payment API create-order error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`Payment API create-order failed: ${response.status} ${response.statusText}`);
+      }
+
       const data = await response.json();
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -56,6 +66,16 @@ serve(async (req) => {
         body: new URLSearchParams(payload),
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Payment API check-status error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`Payment API check-status failed: ${response.status} ${response.statusText}`);
+      }
+
       const data = await response.json();
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -71,8 +91,12 @@ serve(async (req) => {
     );
 
   } catch (error) {
+    console.error('Payment function error:', error.message);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ 
+        error: 'Payment processing failed', 
+        details: error.message 
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
