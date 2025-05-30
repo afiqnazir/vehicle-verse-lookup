@@ -528,10 +528,10 @@ const Index = () => {
                 )}
                 <div className="flex flex-wrap gap-2">
                   {vehicleData.is_commercial && (
-                    <Badge variant="outline\" className="border-orange-500 text-orange-200">Commercial</Badge>
+                    <Badge variant="outline\" className=\"border-orange-500 text-orange-200">Commercial</Badge>
                   )}
                   {vehicleData.is_two_wheeler && (
-                    <Badge variant="outline" className="border-blue-500 text-blue-200">Two Wheeler</Badge>
+                    <Badge variant="outline\" className="border-blue-500 text-blue-200">Two Wheeler</Badge>
                   )}
                   {vehicleData.is_four_wheeler && (
                     <Badge variant="outline" className="border-green-500 text-green-200">Four Wheeler</Badge>
