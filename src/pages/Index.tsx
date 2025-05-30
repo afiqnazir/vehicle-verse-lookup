@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Search, Car, Shield, Calendar, User, MapPin, Wrench, FileText } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -7,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface VehicleDetails {
   customer_details?: {
@@ -92,105 +92,33 @@ const Index = () => {
     setVehicleData(null);
 
     try {
-      // First API URL with CORS proxy for development
-      console.log('Trying first API...');
-      let response;
+      console.log('Calling Supabase Edge Function for vehicle lookup...');
       
-      try {
-        // Try direct API call first
-        response = await fetch(`https://apex.renewbuyinsurance.com/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          mode: 'cors',
-        });
-      } catch (corsError) {
-        console.log('Direct API failed due to CORS, trying with proxy...');
-        // Try with CORS proxy as fallback
-        response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://apex.renewbuyinsurance.com/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`)}`);
-        
-        if (response.ok) {
-          const proxyData = await response.json();
-          const actualData = JSON.parse(proxyData.contents);
-          console.log('First API response via proxy:', actualData);
-          setVehicleData(actualData);
-          toast({
-            title: "Vehicle Found!",
-            description: "Vehicle details retrieved successfully",
-          });
-          setLoading(false);
-          return;
-        }
-      }
-      
-      if (response && response.ok) {
-        const data = await response.json();
-        console.log('First API response:', data);
-        setVehicleData(data);
-        toast({
-          title: "Vehicle Found!",
-          description: "Vehicle details retrieved successfully",
-        });
-        setLoading(false);
-        return;
+      const { data, error: functionError } = await supabase.functions.invoke('vehicle-lookup', {
+        body: { vehicleNumber }
+      });
+
+      if (functionError) {
+        console.error('Supabase function error:', functionError);
+        throw new Error(functionError.message || 'Failed to fetch vehicle details');
       }
 
-      // Second API URL (fallback) with CORS proxy
-      console.log('First API failed, trying second API...');
-      try {
-        response = await fetch(`https://apex.renewbuyinsurance.com/cv/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          mode: 'cors',
+      if (data.success && data.data) {
+        console.log('Vehicle data received:', data.data);
+        setVehicleData(data.data);
+        toast({
+          title: "Vehicle Found!",
+          description: `Vehicle details retrieved successfully using ${data.apiUsed} API`,
         });
-      } catch (corsError) {
-        console.log('Second direct API failed due to CORS, trying with proxy...');
-        response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://apex.renewbuyinsurance.com/cv/api/v1/vaahan/registration_number/?regn_no=${vehicleNumber}`)}`);
-        
-        if (response.ok) {
-          const proxyData = await response.json();
-          const actualData = JSON.parse(proxyData.contents);
-          console.log('Second API response via proxy:', actualData);
-          if (actualData.status && actualData.vaahan_details) {
-            setVehicleData(actualData.vaahan_details);
-            toast({
-              title: "Vehicle Found!",
-              description: "Vehicle details retrieved successfully",
-            });
-          } else {
-            throw new Error('Vehicle not found in database');
-          }
-          setLoading(false);
-          return;
-        }
-      }
-      
-      if (response && response.ok) {
-        const data = await response.json();
-        console.log('Second API response:', data);
-        if (data.status && data.vaahan_details) {
-          setVehicleData(data.vaahan_details);
-          toast({
-            title: "Vehicle Found!",
-            description: "Vehicle details retrieved successfully",
-          });
-        } else {
-          throw new Error('Vehicle not found in database');
-        }
       } else {
-        throw new Error('Vehicle not found in any database');
+        throw new Error(data.error || 'Vehicle not found in database');
       }
     } catch (err) {
-      console.error('API Error:', err);
-      setError('Unable to fetch vehicle details. This might be due to network restrictions or the vehicle number not being found in the database.');
+      console.error('Vehicle lookup error:', err);
+      setError('Unable to fetch vehicle details. Please try again or check if the vehicle number is correct.');
       toast({
-        title: "Service Temporarily Unavailable",
-        description: "Please try again later or contact support if the issue persists",
+        title: "Vehicle Not Found",
+        description: "Please check the vehicle number and try again",
         variant: "destructive",
       });
     } finally {
@@ -269,10 +197,6 @@ const Index = () => {
             <CardContent className="pt-6">
               <div className="text-center">
                 <p className="text-red-200 mb-2">{error}</p>
-                <p className="text-red-300 text-sm">
-                  Note: Due to browser security restrictions, direct API access may be limited. 
-                  For production use, these APIs should be called from a backend server.
-                </p>
               </div>
             </CardContent>
           </Card>
