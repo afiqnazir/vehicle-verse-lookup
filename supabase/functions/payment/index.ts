@@ -45,10 +45,8 @@ serve(async (req) => {
         route: '1'
       };
 
-      // Add error handling for network failures
-      let response;
       try {
-        response = await fetch(`${PAYMENT_API_URL}/create-order`, {
+        const response = await fetch(`${PAYMENT_API_URL}/create-order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -60,10 +58,11 @@ serve(async (req) => {
         // Check if response is JSON
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
+          const responseText = await response.text();
           console.error('Non-JSON response received:', {
             status: response.status,
             contentType,
-            body: await response.text(),
+            body: responseText,
           });
           return new Response(
             JSON.stringify({
@@ -82,7 +81,8 @@ serve(async (req) => {
         try {
           data = await response.json();
         } catch (jsonError) {
-          console.error('JSON parsing error:', jsonError, 'Response:', await response.text());
+          const responseText = await response.text();
+          console.error('JSON parsing error:', jsonError, 'Response:', responseText);
           return new Response(
             JSON.stringify({
               status: false,
@@ -96,9 +96,8 @@ serve(async (req) => {
           );
         }
 
-        // Check for payment_url in the response
-        if (!data.payment_url) {
-          console.error('Payment URL missing in response:', data);
+        if (!data.status || !data.result?.payment_url) {
+          console.error('Invalid payment response:', data);
           return new Response(
             JSON.stringify({
               status: false,
@@ -115,7 +114,9 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             status: true,
-            payment_url: data.payment_url,
+            result: {
+              payment_url: data.result.payment_url
+            },
             message: 'Payment order created successfully'
           }),
           {
@@ -145,10 +146,8 @@ serve(async (req) => {
         order_id: orderData.orderId
       };
 
-      // Add error handling for network failures
-      let response;
       try {
-        response = await fetch(`${PAYMENT_API_URL}/check-order-status`, {
+        const response = await fetch(`${PAYMENT_API_URL}/check-order-status`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -160,10 +159,11 @@ serve(async (req) => {
         // Check if response is JSON
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
+          const responseText = await response.text();
           console.error('Non-JSON response received:', {
             status: response.status,
             contentType,
-            body: await response.text(),
+            body: responseText,
           });
           return new Response(
             JSON.stringify({
@@ -182,7 +182,8 @@ serve(async (req) => {
         try {
           data = await response.json();
         } catch (jsonError) {
-          console.error('JSON parsing error:', jsonError, 'Response:', await response.text());
+          const responseText = await response.text();
+          console.error('JSON parsing error:', jsonError, 'Response:', responseText);
           return new Response(
             JSON.stringify({
               status: false,
@@ -196,9 +197,8 @@ serve(async (req) => {
           );
         }
 
-        // Check for txnStatus in the response
-        if (!data.txnStatus) {
-          console.error('Transaction status missing in response:', data);
+        if (!data.status || !data.result?.txnStatus) {
+          console.error('Invalid status response:', data);
           return new Response(
             JSON.stringify({
               status: false,
@@ -215,7 +215,9 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             status: true,
-            txnStatus: data.txnStatus,
+            result: {
+              txnStatus: data.result.txnStatus
+            },
             message: 'Payment status retrieved successfully'
           }),
           {
