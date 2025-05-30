@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+// Updated token for the payment API
 const USER_TOKEN = "9856ce42fc26349fe5fab9c6b630e9c6";
 const PAYMENT_API_URL = "https://pay.knief.xyz/api";
 
@@ -9,6 +10,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -28,28 +30,82 @@ serve(async (req) => {
         route: '1'
       };
 
-      const response = await fetch(`${PAYMENT_API_URL}/create-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams(payload),
-      });
+      // Add error handling for network failures
+      let response;
+      try {
+        response = await fetch(`${PAYMENT_API_URL}/create-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams(payload),
+        });
+      } catch (networkError) {
+        console.error('Payment API network error:', networkError);
+        return new Response(
+          JSON.stringify({ 
+            status: false, 
+            message: 'Payment service is temporarily unavailable. Please try again later.',
+            error: networkError.message 
+          }),
+          {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
 
-      if (!response.ok) {
-        const errorText = await response.text();
+      const responseText = await response.text();
+      let data;
+      
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Payment API response parse error:', {
+          status: response.status,
+          body: responseText,
+          error: parseError
+        });
+        return new Response(
+          JSON.stringify({ 
+            status: false, 
+            message: 'Invalid response from payment service',
+            error: 'Response parsing failed' 
+          }),
+          {
+            status: 502,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // Check for specific error conditions in the API response
+      if (!response.ok || !data.status) {
         console.error('Payment API create-order error:', {
           status: response.status,
           statusText: response.statusText,
-          body: errorText
+          data
         });
-        throw new Error(`Payment API create-order failed: ${response.status} ${response.statusText}`);
+        
+        return new Response(
+          JSON.stringify({ 
+            status: false, 
+            message: data.message || 'Payment initiation failed',
+            error: data.error || response.statusText
+          }),
+          {
+            status: response.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
       }
 
-      const data = await response.json();
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify(data),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     if (action === 'check-status') {
@@ -58,32 +114,90 @@ serve(async (req) => {
         order_id: orderData.orderId
       };
 
-      const response = await fetch(`${PAYMENT_API_URL}/check-order-status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams(payload),
-      });
+      // Add error handling for network failures
+      let response;
+      try {
+        response = await fetch(`${PAYMENT_API_URL}/check-order-status`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams(payload),
+        });
+      } catch (networkError) {
+        console.error('Payment status check network error:', networkError);
+        return new Response(
+          JSON.stringify({ 
+            status: false, 
+            message: 'Payment status check failed. Please try again.',
+            error: networkError.message 
+          }),
+          {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
 
-      if (!response.ok) {
-        const errorText = await response.text();
+      const responseText = await response.text();
+      let data;
+      
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Payment status check response parse error:', {
+          status: response.status,
+          body: responseText,
+          error: parseError
+        });
+        return new Response(
+          JSON.stringify({ 
+            status: false, 
+            message: 'Invalid response from payment service',
+            error: 'Response parsing failed' 
+          }),
+          {
+            status: 502,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      // Check for specific error conditions in the API response
+      if (!response.ok || !data.status) {
         console.error('Payment API check-status error:', {
           status: response.status,
           statusText: response.statusText,
-          body: errorText
+          data
         });
-        throw new Error(`Payment API check-status failed: ${response.status} ${response.statusText}`);
+        
+        return new Response(
+          JSON.stringify({ 
+            status: false, 
+            message: data.message || 'Payment status check failed',
+            error: data.error || response.statusText
+          }),
+          {
+            status: response.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
       }
 
-      const data = await response.json();
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify(data),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     return new Response(
-      JSON.stringify({ error: 'Invalid action' }),
+      JSON.stringify({ 
+        status: false,
+        message: 'Invalid action',
+        error: 'The requested action is not supported' 
+      }),
       {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -91,11 +205,12 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Payment function error:', error.message);
+    console.error('Payment function error:', error);
     return new Response(
       JSON.stringify({ 
-        error: 'Payment processing failed', 
-        details: error.message 
+        status: false,
+        message: 'Payment processing failed',
+        error: error.message 
       }),
       {
         status: 500,
