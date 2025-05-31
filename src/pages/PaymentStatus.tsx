@@ -43,7 +43,8 @@ const PaymentStatus = () => {
       console.log('Payment status response:', data);
       setPaymentDetails(data);
 
-      if (data.success && data.txnStatus === 'SUCCESS') {
+      // Check for successful payment using UTR field presence and SUCCESS status
+      if (data.success && data.isPaymentSuccessful) {
         setPaymentStatus('success');
         // Fetch vehicle details since payment is successful
         if (vehicleNumber) {
@@ -53,7 +54,7 @@ const PaymentStatus = () => {
           title: "Payment Successful!",
           description: "Your payment has been confirmed. Fetching vehicle details...",
         });
-      } else if (data.success && data.txnStatus === 'PENDING') {
+      } else if (data.success && data.isPaymentPending) {
         setPaymentStatus('pending');
         // Check again after 3 seconds
         setTimeout(() => {

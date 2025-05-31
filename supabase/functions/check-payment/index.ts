@@ -54,7 +54,11 @@ serve(async (req) => {
     const data = await response.json();
     console.log('Payment status response:', data);
 
-    if (data.status) {
+    if (data.status && data.result) {
+      // Check if payment is successful by looking for UTR field and SUCCESS status
+      const isSuccess = data.result.txnStatus === 'SUCCESS' && data.result.utr;
+      const isPending = data.result.txnStatus === 'PENDING';
+      
       return new Response(
         JSON.stringify({
           success: true,
@@ -62,7 +66,9 @@ serve(async (req) => {
           orderId: data.result.orderId,
           amount: data.result.amount,
           date: data.result.date,
-          utr: data.result.utr || null
+          utr: data.result.utr || null,
+          isPaymentSuccessful: isSuccess,
+          isPaymentPending: isPending
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
