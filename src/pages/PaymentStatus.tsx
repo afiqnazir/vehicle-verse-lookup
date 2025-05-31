@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,45 +14,81 @@ const PaymentStatus = () => {
   const [paymentDetails, setPaymentDetails] = useState<any>(null);
   const [vehicleData, setVehicleData] = useState<any>(null);
   const [checkAttempts, setCheckAttempts] = useState(0);
-  const [maxAttempts] = useState(10); // Maximum attempts to check payment status
+  const [maxAttempts] = useState(10);
 
   const orderId = searchParams.get('orderId');
   const vehicleNumber = searchParams.get('vehicleNumber');
 
   useEffect(() => {
-    if (orderId) {
+    console.log('PaymentStatus component mounted');
+    console.log('URL params:', { orderId, vehicleNumber });
+    console.log('Full URL:', window.location.href);
+    
+    if (orderId && orderId !== 'null' && orderId !== 'undefined') {
+      console.log('Valid orderId found, starting payment check');
       checkPaymentStatus();
     } else {
-      console.error('No order ID found in URL parameters');
+      console.error('No valid order ID found in URL parameters. OrderId:', orderId);
       setPaymentStatus('failed');
+      toast({
+        title: "Invalid Payment Link",
+        description: "No order ID found. Please try the payment process again.",
+        variant: "destructive",
+      });
     }
   }, [orderId]);
 
   const checkPaymentStatus = async () => {
     try {
-      console.log('Checking payment status for order:', orderId, 'Attempt:', checkAttempts + 1);
+      console.log('=== PAYMENT CHECK ATTEMPT ===');
+      console.log('Order ID being checked:', orderId);
+      console.log('Attempt number:', checkAttempts + 1);
+      
+      if (!orderId) {
+        console.error('OrderId is null or undefined');
+        setPaymentStatus('failed');
+        return;
+      }
       
       const { data, error } = await supabase.functions.invoke('check-payment', {
-        body: { orderId }
+        body: { 
+          orderId: orderId 
+        }
       });
 
+      console.log('Supabase function invoke response:', { data, error });
+
       if (error) {
-        console.error('Payment check error:', error);
+        console.error('Supabase function invoke error:', error);
         setPaymentStatus('failed');
         toast({
           title: "Payment Check Failed",
-          description: "Unable to verify payment status. Please try again.",
+          description: `Unable to verify payment status: ${error.message}`,
           variant: "destructive",
         });
         return;
       }
 
-      console.log('Payment status response:', data);
+      if (!data) {
+        console.error('No data received from payment check function');
+        setPaymentStatus('failed');
+        toast({
+          title: "Payment Check Failed",
+          description: "No response from payment verification service.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log('Payment check response data:', JSON.stringify(data, null, 2));
       setPaymentDetails(data);
 
       // Handle successful payment verification
       if (data.success && data.isPaymentSuccessful) {
-        console.log('Payment verified as successful with UTR:', data.utr);
+        console.log('✅ Payment verified as successful!');
+        console.log('UTR:', data.utr);
+        console.log('Transaction Status:', data.txnStatus);
+        
         setPaymentStatus('success');
         
         // Fetch vehicle details since payment is successful
@@ -68,7 +103,7 @@ const PaymentStatus = () => {
       } 
       // Handle pending payment
       else if (data.success && data.isPaymentPending) {
-        console.log('Payment is still pending');
+        console.log('⏳ Payment is still pending');
         setPaymentStatus('pending');
         
         // Check again after 3 seconds, but only if we haven't exceeded max attempts
@@ -78,7 +113,7 @@ const PaymentStatus = () => {
             checkPaymentStatus();
           }, 3000);
         } else {
-          console.log('Max attempts reached, marking as failed');
+          console.log('❌ Max attempts reached, marking as failed');
           setPaymentStatus('failed');
           toast({
             title: "Payment Timeout",
@@ -88,27 +123,28 @@ const PaymentStatus = () => {
         }
       } 
       // Handle failed payment
-      else if (data.isPaymentFailed || (data.success && data.txnStatus === 'FAILED')) {
-        console.log('Payment marked as failed by gateway');
+      else {
+        console.log('❌ Payment failed or status unclear');
+        console.log('Payment data:', data);
         setPaymentStatus('failed');
+        
+        let errorMessage = "Your payment could not be verified.";
+        if (data.error) {
+          errorMessage = data.error;
+        } else if (data.txnStatus === 'FAILED') {
+          errorMessage = "Payment was declined by your bank.";
+        } else if (data.txnStatus === 'CANCELLED') {
+          errorMessage = "Payment was cancelled.";
+        }
+        
         toast({
           title: "Payment Failed",
-          description: "Your payment was not successful. Please try again.",
-          variant: "destructive",
-        });
-      }
-      // Handle any other case as failed
-      else {
-        console.log('Payment status unclear, marking as failed. Data:', data);
-        setPaymentStatus('failed');
-        toast({
-          title: "Payment Verification Failed",
-          description: "Unable to confirm payment status. Please contact support.",
+          description: errorMessage,
           variant: "destructive",
         });
       }
     } catch (error) {
-      console.error('Error checking payment status:', error);
+      console.error('Error in checkPaymentStatus:', error);
       setPaymentStatus('failed');
       toast({
         title: "Payment Check Error",
@@ -182,10 +218,22 @@ const PaymentStatus = () => {
           </CardHeader>
           
           <CardContent className="space-y-6">
+            {/* Debug info for troubleshooting */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="bg-gray-800 p-2 rounded text-xs text-gray-300">
+                <p>Debug: OrderId = {orderId}</p>
+                <p>Debug: VehicleNumber = {vehicleNumber}</p>
+                <p>Debug: Attempts = {checkAttempts + 1}/{maxAttempts}</p>
+              </div>
+            )}
+
             {paymentStatus === 'checking' && (
               <div className="text-center">
                 <p className="text-blue-200">Please wait while we verify your payment...</p>
                 <p className="text-blue-300 text-sm mt-2">Attempt {checkAttempts + 1} of {maxAttempts}</p>
+                {orderId && (
+                  <p className="text-blue-400 text-xs mt-1">Order ID: {orderId}</p>
+                )}
               </div>
             )}
 
@@ -248,6 +296,9 @@ const PaymentStatus = () => {
                     <p>Order ID: {paymentDetails.orderId || orderId}</p>
                     {paymentDetails.txnStatus && (
                       <p>Status: {paymentDetails.txnStatus}</p>
+                    )}
+                    {paymentDetails.error && (
+                      <p>Error: {paymentDetails.error}</p>
                     )}
                   </div>
                 )}
