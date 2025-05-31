@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Search, Car, Shield, Calendar, User, MapPin, Wrench, FileText } from 'lucide-react';
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { PaymentModal } from "@/components/PaymentModal";
 
 interface VehicleDetails {
   customer_details?: {
@@ -69,6 +71,8 @@ const Index = () => {
   const [vehicleData, setVehicleData] = useState<VehicleDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
   const { toast } = useToast();
 
   const formatVehicleNumber = (input: string) => {
@@ -77,7 +81,9 @@ const Index = () => {
     setVehicleNumber(formatted);
   };
 
-  const fetchVehicleDetails = async () => {
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    
     if (!vehicleNumber.trim()) {
       toast({
         title: "Invalid Input",
@@ -87,48 +93,60 @@ const Index = () => {
       return;
     }
 
-    setLoading(true);
-    setError('');
+    // Clear previous data and errors
     setVehicleData(null);
+    setError('');
+    
+    // Show payment modal
+    setShowPaymentModal(true);
+  };
 
+  const handleProceedToPayment = async (mobile: string) => {
+    setPaymentLoading(true);
+    
     try {
-      console.log('Calling Supabase Edge Function for vehicle lookup...');
+      console.log('Creating payment for vehicle lookup...');
       
-      const { data, error: functionError } = await supabase.functions.invoke('vehicle-lookup', {
-        body: { vehicleNumber }
+      const { data, error } = await supabase.functions.invoke('create-payment', {
+        body: { 
+          vehicleNumber,
+          customerMobile: mobile
+        }
       });
 
-      if (functionError) {
-        console.error('Supabase function error:', functionError);
-        throw new Error(functionError.message || 'Failed to fetch vehicle details');
+      if (error) {
+        console.error('Payment creation error:', error);
+        throw new Error(error.message || 'Failed to create payment');
       }
 
-      if (data.success && data.data) {
-        console.log('Vehicle data received:', data.data);
-        setVehicleData(data.data);
+      if (data.success) {
+        console.log('Payment created successfully:', data);
+        
+        // Store vehicle number in URL params for payment status page
+        const paymentUrl = `${data.paymentUrl}?orderId=${data.orderId}&vehicleNumber=${encodeURIComponent(vehicleNumber)}`;
+        
         toast({
-          title: "Vehicle Found!",
-          description: `Vehicle details retrieved successfully using ${data.apiUsed} API`,
+          title: "Payment Created!",
+          description: "Redirecting to payment gateway...",
         });
+
+        // Redirect to payment gateway
+        window.location.href = paymentUrl;
       } else {
-        throw new Error(data.error || 'Vehicle not found in database');
+        throw new Error(data.error || 'Failed to create payment');
       }
     } catch (err) {
-      console.error('Vehicle lookup error:', err);
-      setError('Unable to fetch vehicle details. Please try again or check if the vehicle number is correct.');
+      console.error('Payment creation error:', err);
+      setError('Unable to create payment. Please try again.');
       toast({
-        title: "Vehicle Not Found",
-        description: "Please check the vehicle number and try again",
+        title: "Payment Error",
+        description: "Failed to create payment. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      setPaymentLoading(false);
+      setShowPaymentModal(false);
     }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchVehicleDetails();
   };
 
   return (
@@ -157,9 +175,14 @@ const Index = () => {
               <span>Vehicle Number Lookup</span>
             </CardTitle>
             <p className="text-blue-200">Enter your vehicle registration number to get complete RTO information</p>
+            <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <p className="text-yellow-200 text-sm font-semibold">
+                💳 Payment Required: ₹50 per vehicle lookup
+              </p>
+            </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-4 max-w-md mx-auto">
+            <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-4 max-w-md mx-auto">
               <div className="flex-1">
                 <Input
                   type="text"
@@ -175,17 +198,8 @@ const Index = () => {
                 disabled={loading || !vehicleNumber.trim()}
                 className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 h-12 px-8"
               >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Searching...
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-4 w-4 mr-2" />
-                    Search
-                  </>
-                )}
+                <Search className="h-4 w-4 mr-2" />
+                Search (₹50)
               </Button>
             </form>
           </CardContent>
@@ -202,261 +216,47 @@ const Index = () => {
           </Card>
         )}
 
-        {/* Vehicle Details */}
-        {vehicleData && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Owner Information */}
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center space-x-2">
-                  <User className="h-5 w-5" />
-                  <span>Owner Information</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-blue-200 text-sm">Owner Name</p>
-                  <p className="text-white font-semibold">{vehicleData.customer_details?.full_name || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Nominee</p>
-                  <p className="text-white font-semibold">{vehicleData.nominee_details?.name || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Address</p>
-                  <p className="text-white">{vehicleData.customer_details?.communication_address?.address_line || 'N/A'}</p>
-                  {vehicleData.customer_details?.communication_address?.pincode && (
-                    <p className="text-blue-300">Pincode: {vehicleData.customer_details.communication_address.pincode}</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Vehicle Information */}
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center space-x-2">
-                  <Car className="h-5 w-5" />
-                  <span>Vehicle Information</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-blue-200 text-sm">Registration Number</p>
-                  <p className="text-white font-semibold text-lg">{vehicleData.vehicle_details?.registration_no || 'N/A'}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-blue-200 text-sm">Engine Number</p>
-                    <p className="text-white font-mono">{vehicleData.vehicle_details?.engine_no || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-blue-200 text-sm">Chassis Number</p>
-                    <p className="text-white font-mono">{vehicleData.vehicle_details?.chassis_no || 'N/A'}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-blue-200 text-sm">Registration Date</p>
-                    <p className="text-white">{vehicleData.vehicle_details?.registration_date || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-blue-200 text-sm">Manufacture Date</p>
-                    <p className="text-white">{vehicleData.vehicle_details?.manufacture_date || 'N/A'}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-blue-200 text-sm">Color</p>
-                    <p className="text-white">{vehicleData.vehicle_details?.vehicle_color || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-blue-200 text-sm">Vehicle Type</p>
-                    <Badge variant="secondary" className="bg-blue-500/20 text-blue-200">
-                      {vehicleData.vehicle_details?.vehicle_type || 'N/A'}
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Financed</p>
-                  <Badge variant={vehicleData.vehicle_details?.is_vehicle_financed ? "destructive" : "default"}>
-                    {vehicleData.vehicle_details?.is_vehicle_financed ? 'Yes' : 'No'}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Detailed Vehicle Info (if available from meta_data) */}
-            {vehicleData.meta_data?.signzy_response?.result && (
-              <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center space-x-2">
-                    <Wrench className="h-5 w-5" />
-                    <span>Technical Specifications</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div className="space-y-4">
-                      <div>
-                        <p className="text-blue-200 text-sm">Manufacturer</p>
-                        <p className="text-white font-semibold">{vehicleData.meta_data.signzy_response.result.vehicleManufacturerName || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-blue-200 text-sm">Model</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.model || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-blue-200 text-sm">Vehicle Class</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.class || 'N/A'}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <p className="text-blue-200 text-sm">Fuel Type</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.type || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-blue-200 text-sm">Engine Capacity</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.vehicleCubicCapacity ? `${vehicleData.meta_data.signzy_response.result.vehicleCubicCapacity} CC` : 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-blue-200 text-sm">Seating Capacity</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.vehicleSeatCapacity || 'N/A'}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <p className="text-blue-200 text-sm">Emission Norms</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.normsType || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-blue-200 text-sm">Gross Weight</p>
-                        <p className="text-white">{vehicleData.meta_data.signzy_response.result.grossVehicleWeight ? `${vehicleData.meta_data.signzy_response.result.grossVehicleWeight} KG` : 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-blue-200 text-sm">Status</p>
-                        <Badge variant="default" className="bg-green-500/20 text-green-200">
-                          {vehicleData.meta_data.signzy_response.result.status || 'N/A'}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Insurance Information */}
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center space-x-2">
-                  <Shield className="h-5 w-5" />
-                  <span>Insurance Information</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-blue-200 text-sm">Insurance Company</p>
-                  <p className="text-white font-semibold">{vehicleData.meta_data?.signzy_response?.result?.vehicleInsuranceCompanyName || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Policy Number</p>
-                  <p className="text-white font-mono">{vehicleData.previous_policy_number || vehicleData.meta_data?.signzy_response?.result?.vehicleInsurancePolicyNumber || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-blue-200 text-sm">Insurance Valid Upto</p>
-                  <p className="text-white">{vehicleData.previous_policy_exp_date || vehicleData.meta_data?.signzy_response?.result?.vehicleInsuranceUpto || 'N/A'}</p>
-                </div>
-                {vehicleData.previous_year_ncb !== undefined && (
-                  <div>
-                    <p className="text-blue-200 text-sm">Previous Year NCB</p>
-                    <Badge variant="default" className="bg-green-500/20 text-green-200">
-                      {vehicleData.previous_year_ncb}%
-                    </Badge>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Additional Information */}
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center space-x-2">
-                  <FileText className="h-5 w-5" />
-                  <span>Additional Information</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {vehicleData.meta_data?.signzy_response?.result?.rcFinancer && (
-                  <div>
-                    <p className="text-blue-200 text-sm">Financer</p>
-                    <p className="text-white">{vehicleData.meta_data.signzy_response.result.rcFinancer}</p>
-                  </div>
-                )}
-                {vehicleData.meta_data?.signzy_response?.result?.puccUpto && (
-                  <div>
-                    <p className="text-blue-200 text-sm">PUCC Valid Upto</p>
-                    <p className="text-white">{vehicleData.meta_data.signzy_response.result.puccUpto}</p>
-                  </div>
-                )}
-                {vehicleData.meta_data?.signzy_response?.result?.rtoCode && (
-                  <div>
-                    <p className="text-blue-200 text-sm">RTO Code</p>
-                    <p className="text-white">{vehicleData.meta_data.signzy_response.result.rtoCode}</p>
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {vehicleData.is_commercial && (
-                    <Badge variant="outline" className="border-orange-500 text-orange-200">Commercial</Badge>
-                  )}
-                  {vehicleData.is_two_wheeler && (
-                    <Badge variant="outline" className="border-blue-500 text-blue-200">Two Wheeler</Badge>
-                  )}
-                  {vehicleData.is_four_wheeler && (
-                    <Badge variant="outline" className="border-green-500 text-green-200">Four Wheeler</Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {/* Payment Modal */}
+        <PaymentModal
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          onProceedToPayment={handleProceedToPayment}
+          vehicleNumber={vehicleNumber}
+          loading={paymentLoading}
+        />
 
         {/* Features Section */}
-        {!vehicleData && !loading && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
-              <CardContent className="pt-6">
-                <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl w-fit mx-auto mb-4">
-                  <Search className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="text-white font-semibold mb-2">Quick Search</h3>
-                <p className="text-blue-200 text-sm">Instant vehicle information lookup with advanced search algorithms</p>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
-              <CardContent className="pt-6">
-                <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl w-fit mx-auto mb-4">
-                  <Shield className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="text-white font-semibold mb-2">Secure & Reliable</h3>
-                <p className="text-blue-200 text-sm">Multiple data sources ensure accurate and up-to-date information</p>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
-              <CardContent className="pt-6">
-                <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl w-fit mx-auto mb-4">
-                  <FileText className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="text-white font-semibold mb-2">Complete Details</h3>
-                <p className="text-blue-200 text-sm">Comprehensive vehicle information including insurance and technical specs</p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+          <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
+            <CardContent className="pt-6">
+              <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl w-fit mx-auto mb-4">
+                <Search className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="text-white font-semibold mb-2">Quick Search</h3>
+              <p className="text-blue-200 text-sm">Instant vehicle information lookup with advanced search algorithms</p>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
+            <CardContent className="pt-6">
+              <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl w-fit mx-auto mb-4">
+                <Shield className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="text-white font-semibold mb-2">Secure Payment</h3>
+              <p className="text-blue-200 text-sm">Secure UPI payment gateway with instant confirmation</p>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-black/40 backdrop-blur-sm border-blue-500/30 text-center">
+            <CardContent className="pt-6">
+              <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl w-fit mx-auto mb-4">
+                <FileText className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="text-white font-semibold mb-2">Complete Details</h3>
+              <p className="text-blue-200 text-sm">Comprehensive vehicle information including insurance and technical specs</p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
