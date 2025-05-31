@@ -52,32 +52,50 @@ serve(async (req) => {
     });
 
     const data = await response.json();
-    console.log('Payment status response:', data);
+    console.log('Payment gateway raw response:', JSON.stringify(data, null, 2));
 
     if (data.status && data.result) {
-      // Check if payment is successful by looking for UTR field and SUCCESS status
-      const isSuccess = data.result.txnStatus === 'SUCCESS' && data.result.utr;
-      const isPending = data.result.txnStatus === 'PENDING';
+      const txnStatus = data.result.txnStatus;
+      const utrField = data.result.utr;
+      
+      console.log('Transaction status:', txnStatus);
+      console.log('UTR field:', utrField);
+      
+      // Check if payment is successful: both SUCCESS status AND UTR field must exist
+      const isSuccess = txnStatus === 'SUCCESS' && utrField && utrField.trim() !== '';
+      const isPending = txnStatus === 'PENDING';
+      const isFailed = txnStatus === 'FAILED' || txnStatus === 'CANCELLED';
+      
+      console.log('Payment analysis:', {
+        isSuccess,
+        isPending,
+        isFailed,
+        hasUtr: !!utrField
+      });
       
       return new Response(
         JSON.stringify({
           success: true,
-          txnStatus: data.result.txnStatus,
+          txnStatus: txnStatus,
           orderId: data.result.orderId,
           amount: data.result.amount,
           date: data.result.date,
-          utr: data.result.utr || null,
+          utr: utrField || null,
           isPaymentSuccessful: isSuccess,
-          isPaymentPending: isPending
+          isPaymentPending: isPending,
+          isPaymentFailed: isFailed
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
     } else {
+      console.log('Payment check failed - invalid response structure:', data);
       return new Response(
         JSON.stringify({
-          error: data.message || 'Failed to check payment status'
+          success: false,
+          error: data.message || 'Failed to check payment status',
+          isPaymentFailed: true
         }),
         {
           status: 400,
@@ -88,7 +106,11 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error checking payment:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ 
+        success: false, 
+        error: 'Internal server error',
+        isPaymentFailed: true 
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

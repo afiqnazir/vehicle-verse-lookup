@@ -14,6 +14,8 @@ const PaymentStatus = () => {
   const [paymentStatus, setPaymentStatus] = useState<'checking' | 'success' | 'failed' | 'pending'>('checking');
   const [paymentDetails, setPaymentDetails] = useState<any>(null);
   const [vehicleData, setVehicleData] = useState<any>(null);
+  const [checkAttempts, setCheckAttempts] = useState(0);
+  const [maxAttempts] = useState(10); // Maximum attempts to check payment status
 
   const orderId = searchParams.get('orderId');
   const vehicleNumber = searchParams.get('vehicleNumber');
@@ -22,13 +24,14 @@ const PaymentStatus = () => {
     if (orderId) {
       checkPaymentStatus();
     } else {
+      console.error('No order ID found in URL parameters');
       setPaymentStatus('failed');
     }
   }, [orderId]);
 
   const checkPaymentStatus = async () => {
     try {
-      console.log('Checking payment status for order:', orderId);
+      console.log('Checking payment status for order:', orderId, 'Attempt:', checkAttempts + 1);
       
       const { data, error } = await supabase.functions.invoke('check-payment', {
         body: { orderId }
@@ -37,40 +40,81 @@ const PaymentStatus = () => {
       if (error) {
         console.error('Payment check error:', error);
         setPaymentStatus('failed');
+        toast({
+          title: "Payment Check Failed",
+          description: "Unable to verify payment status. Please try again.",
+          variant: "destructive",
+        });
         return;
       }
 
       console.log('Payment status response:', data);
       setPaymentDetails(data);
 
-      // Check for successful payment using UTR field presence and SUCCESS status
+      // Handle successful payment verification
       if (data.success && data.isPaymentSuccessful) {
+        console.log('Payment verified as successful with UTR:', data.utr);
         setPaymentStatus('success');
+        
         // Fetch vehicle details since payment is successful
         if (vehicleNumber) {
           await fetchVehicleDetails();
         }
+        
         toast({
           title: "Payment Successful!",
-          description: "Your payment has been confirmed. Fetching vehicle details...",
+          description: `Payment verified! UTR: ${data.utr}`,
         });
-      } else if (data.success && data.isPaymentPending) {
+      } 
+      // Handle pending payment
+      else if (data.success && data.isPaymentPending) {
+        console.log('Payment is still pending');
         setPaymentStatus('pending');
-        // Check again after 3 seconds
-        setTimeout(() => {
-          checkPaymentStatus();
-        }, 3000);
-      } else {
+        
+        // Check again after 3 seconds, but only if we haven't exceeded max attempts
+        if (checkAttempts < maxAttempts) {
+          setTimeout(() => {
+            setCheckAttempts(prev => prev + 1);
+            checkPaymentStatus();
+          }, 3000);
+        } else {
+          console.log('Max attempts reached, marking as failed');
+          setPaymentStatus('failed');
+          toast({
+            title: "Payment Timeout",
+            description: "Payment verification timed out. Please contact support if payment was deducted.",
+            variant: "destructive",
+          });
+        }
+      } 
+      // Handle failed payment
+      else if (data.isPaymentFailed || (data.success && data.txnStatus === 'FAILED')) {
+        console.log('Payment marked as failed by gateway');
         setPaymentStatus('failed');
         toast({
           title: "Payment Failed",
-          description: "Your payment could not be processed. Please try again.",
+          description: "Your payment was not successful. Please try again.",
+          variant: "destructive",
+        });
+      }
+      // Handle any other case as failed
+      else {
+        console.log('Payment status unclear, marking as failed. Data:', data);
+        setPaymentStatus('failed');
+        toast({
+          title: "Payment Verification Failed",
+          description: "Unable to confirm payment status. Please contact support.",
           variant: "destructive",
         });
       }
     } catch (error) {
       console.error('Error checking payment status:', error);
       setPaymentStatus('failed');
+      toast({
+        title: "Payment Check Error",
+        description: "An error occurred while checking payment status.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -78,6 +122,7 @@ const PaymentStatus = () => {
     if (!vehicleNumber) return;
 
     try {
+      console.log('Fetching vehicle details for:', vehicleNumber);
       const { data, error } = await supabase.functions.invoke('vehicle-lookup', {
         body: { vehicleNumber }
       });
@@ -89,6 +134,9 @@ const PaymentStatus = () => {
 
       if (data.success && data.data) {
         setVehicleData(data.data);
+        console.log('Vehicle data fetched successfully');
+      } else {
+        console.error('Vehicle lookup failed:', data);
       }
     } catch (error) {
       console.error('Error fetching vehicle details:', error);
@@ -106,6 +154,12 @@ const PaymentStatus = () => {
         retryPayment: true 
       } 
     });
+  };
+
+  const handleRetryCheck = () => {
+    setCheckAttempts(0);
+    setPaymentStatus('checking');
+    checkPaymentStatus();
   };
 
   return (
@@ -131,6 +185,7 @@ const PaymentStatus = () => {
             {paymentStatus === 'checking' && (
               <div className="text-center">
                 <p className="text-blue-200">Please wait while we verify your payment...</p>
+                <p className="text-blue-300 text-sm mt-2">Attempt {checkAttempts + 1} of {maxAttempts}</p>
               </div>
             )}
 
@@ -145,6 +200,9 @@ const PaymentStatus = () => {
                       Transaction ID: {paymentDetails.utr}
                     </p>
                   )}
+                  <p className="text-blue-300 text-xs">
+                    Order ID: {paymentDetails.orderId}
+                  </p>
                 </div>
                 
                 {vehicleData ? (
@@ -175,7 +233,7 @@ const PaymentStatus = () => {
             )}
 
             {paymentStatus === 'failed' && (
-              <div className="text-center space-y-2">
+              <div className="text-center space-y-4">
                 <p className="text-red-400">
                   Your payment could not be processed. This could be due to:
                 </p>
@@ -183,7 +241,16 @@ const PaymentStatus = () => {
                   <li>Payment was cancelled</li>
                   <li>Insufficient balance</li>
                   <li>Network issues</li>
+                  <li>Payment gateway timeout</li>
                 </ul>
+                {paymentDetails && (
+                  <div className="text-xs text-blue-300 mt-4">
+                    <p>Order ID: {paymentDetails.orderId || orderId}</p>
+                    {paymentDetails.txnStatus && (
+                      <p>Status: {paymentDetails.txnStatus}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -194,6 +261,9 @@ const PaymentStatus = () => {
                 </p>
                 <p className="text-blue-200 text-sm">
                   We'll automatically check the status every few seconds.
+                </p>
+                <p className="text-blue-300 text-xs">
+                  Checking... {checkAttempts + 1}/{maxAttempts}
                 </p>
               </div>
             )}
@@ -208,13 +278,24 @@ const PaymentStatus = () => {
                 Back to Home
               </Button>
               
-              {paymentStatus === 'failed' && vehicleNumber && (
-                <Button
-                  onClick={handleTryAgain}
-                  className="flex-1 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
-                >
-                  Try Again
-                </Button>
+              {paymentStatus === 'failed' && (
+                <>
+                  <Button
+                    onClick={handleRetryCheck}
+                    variant="outline"
+                    className="flex-1 border-yellow-500/30 text-yellow-200 hover:bg-yellow-500/10"
+                  >
+                    Retry Check
+                  </Button>
+                  {vehicleNumber && (
+                    <Button
+                      onClick={handleTryAgain}
+                      className="flex-1 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
+                    >
+                      Try Again
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </CardContent>
